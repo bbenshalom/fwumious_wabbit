@@ -357,8 +357,8 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                                 *output_tape.get_unchecked_mut(j) = 0.0;
                             }
                         }
-                        let elapsed_time2 = start_time2.elapsed();
                     }
+                    let elapsed_time2 = start_time2.elapsed();
                     println!("Elapsed after first update: {:?}", elapsed_time2);
                 }
             }
