@@ -358,7 +358,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             }
                         }
                         let elapsed_time2 = start_time2.elapsed();
-                        println!("Elapsed time before update: {:?}", elapsed_time2);
+                        println!("Elapsed after first update: {:?}", elapsed_time2);
                     }
                 }
             }
@@ -366,6 +366,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
             block_helpers::forward_backward(further_blocks, fb, pb, update);
 
             if update {
+                let start_time3 = Instant::now();
                 if self.neuron_type == NeuronType::WeightedSum {
                     // first we need to initialize inputs to zero
                     // TODO - what to think about this buffer
@@ -453,6 +454,8 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
 
                     input_tape.copy_from_slice(output_errors.get_unchecked(0..self.num_inputs));
                 }
+                let elapsed_time3 = start_time3.elapsed();
+                println!("Elapsed after second update: {:?}", elapsed_time3);
             }
         } // unsafe end
     }
