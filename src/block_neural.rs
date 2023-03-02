@@ -9,6 +9,7 @@ use std::io::Error as IOError;
 use std::io::ErrorKind;
 use std::mem::{self, MaybeUninit};
 use std::slice;
+use std::time::Instant;
 
 use crate::block_helpers;
 use crate::block_misc;
@@ -298,6 +299,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                     true => self.dropout_inv,
                     false => 1.0,
                 };
+                let start_time = Instant::now();
                 if !USE_BLAS {
                     let mut j_offset: usize = 0;
                     for j in 0..self.num_neurons {
@@ -328,8 +330,11 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                         1,                                  // incy: i32
                     )
                 }
+                let elapsed_time = start_time.elapsed();
+                println!("Elapsed time before update: {:?}", elapsed_time);
 
                 if update {
+                    let start_time2 = Instant::now();
                     // In case we are doing doing learning, and we have a dropout
 
                     if false && self.dropout != 0.0 {
@@ -352,6 +357,8 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                                 *output_tape.get_unchecked_mut(j) = 0.0;
                             }
                         }
+                        let elapsed_time2 = start_time2.elapsed();
+                        println!("Elapsed time before update: {:?}", elapsed_time2);
                     }
                 }
             }
