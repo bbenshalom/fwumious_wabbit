@@ -379,7 +379,6 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                     );
 
                     for j in 0..self.num_neurons as usize {
-                        let start_time = Instant::now();
                         if self.dropout != 0.0
                             && *self.rng_scratchpad.get_unchecked(j) < self.dropout_threshold
                         {
@@ -388,6 +387,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
 
                         let general_gradient = output_tape.get_unchecked(j) * self.dropout_inv;
 
+                        let start_time = Instant::now();
                         let j_offset = j * self.num_inputs as usize;
                         for i in 0..self.num_inputs as usize {
                             let feature_value = input_tape.get_unchecked(i);
