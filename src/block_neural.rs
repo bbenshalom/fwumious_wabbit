@@ -299,7 +299,6 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                     true => self.dropout_inv,
                     false => 1.0,
                 };
-                let start_time = Instant::now();
                 if !USE_BLAS {
                     let mut j_offset: usize = 0;
                     for j in 0..self.num_neurons {
@@ -330,11 +329,8 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                         1,                                  // incy: i32
                     )
                 }
-                let elapsed_time = start_time.elapsed();
-                println!("Elapsed time before update: {:?}", elapsed_time);
 
                 if update {
-                    let start_time2 = Instant::now();
                     // In case we are doing doing learning, and we have a dropout
 
                     if false && self.dropout != 0.0 {
@@ -358,15 +354,13 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             }
                         }
                     }
-                    let elapsed_time2 = start_time2.elapsed();
-                    println!("Elapsed after first update: {:?}", elapsed_time2);
                 }
             }
 
             block_helpers::forward_backward(further_blocks, fb, pb, update);
 
             if update {
-                let start_time3 = Instant::now();
+                
                 if self.neuron_type == NeuronType::WeightedSum {
                     // first we need to initialize inputs to zero
                     // TODO - what to think about this buffer
@@ -385,6 +379,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                     );
 
                     for j in 0..self.num_neurons as usize {
+                        let start_time = Instant::now();
                         if self.dropout != 0.0
                             && *self.rng_scratchpad.get_unchecked(j) < self.dropout_threshold
                         {
@@ -408,6 +403,8 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                                 self.weights.get_unchecked(i + j_offset).weight * general_gradient;
                             self.weights.get_unchecked_mut(i + j_offset).weight -= update;
                         }
+                        println!("Elapsed after second update: {:?}", start_time.elapsed());
+                        let start_time2 = Instant::now();
                         {
                             // Updating bias term:
                             let gradient = general_gradient * 1.0;
@@ -420,7 +417,9 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             );
                             self.weights.get_unchecked_mut(bias_offset + j).weight -= update;
                         }
+                        println!("Elapsed after second update: {:?}", start_time2.elapsed());
 
+                        let start_time3 = Instant::now();
                         if self.max_norm != 0.0 && fb.example_number % 10 == 0 {
                             let mut wsquaredsum = 0.000001; // Epsilon
                             for i in 0..self.num_inputs as usize {
@@ -435,7 +434,9 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                                 }
                             }
                         }
+                        println!("Elapsed after second update: {:?}", start_time3.elapsed());
                     }
+                    let start_time4 = Instant::now();
                     if self.layer_norm && fb.example_number % 10 == 0 {
                         let mut sum: f32 = 0.0;
                         let mut sumsqr: f32 = 0.0;
@@ -451,11 +452,12 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             self.weights.get_unchecked_mut(i).weight /= var2;
                         }
                     }
+                    println!("Elapsed after second update: {:?}", start_time4.elapsed());
 
+                    let start_time5 = Instant::now();
                     input_tape.copy_from_slice(output_errors.get_unchecked(0..self.num_inputs));
+                    println!("Elapsed after second update: {:?}", start_time5.elapsed());
                 }
-                let elapsed_time3 = start_time3.elapsed();
-                println!("Elapsed after second update: {:?}", elapsed_time3);
             }
         } // unsafe end
     }
