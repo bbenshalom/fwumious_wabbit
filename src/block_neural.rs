@@ -403,7 +403,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                                 self.weights.get_unchecked(i + j_offset).weight * general_gradient;
                             self.weights.get_unchecked_mut(i + j_offset).weight -= update;
                         }
-                        println!("Elapsed after second update: {:?}", start_time.elapsed());
+                        println!("Elapsed 1 update: {:?}", start_time.elapsed());
                         let start_time2 = Instant::now();
                         {
                             // Updating bias term:
@@ -417,7 +417,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             );
                             self.weights.get_unchecked_mut(bias_offset + j).weight -= update;
                         }
-                        println!("Elapsed after second update: {:?}", start_time2.elapsed());
+                        println!("Elapsed 2 update: {:?}", start_time2.elapsed());
 
                         let start_time3 = Instant::now();
                         if self.max_norm != 0.0 && fb.example_number % 10 == 0 {
@@ -434,7 +434,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                                 }
                             }
                         }
-                        println!("Elapsed after second update: {:?}", start_time3.elapsed());
+                        println!("Elapsed 3 update: {:?}", start_time3.elapsed());
                     }
                     let start_time4 = Instant::now();
                     if self.layer_norm && fb.example_number % 10 == 0 {
@@ -452,11 +452,11 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             self.weights.get_unchecked_mut(i).weight /= var2;
                         }
                     }
-                    println!("Elapsed after second update: {:?}", start_time4.elapsed());
+                    println!("Elapsed 4 update: {:?}", start_time4.elapsed());
 
                     let start_time5 = Instant::now();
                     input_tape.copy_from_slice(output_errors.get_unchecked(0..self.num_inputs));
-                    println!("Elapsed after second update: {:?}", start_time5.elapsed());
+                    println!("Elapsed 5 update: {:?}", start_time5.elapsed());
                 }
             }
         } // unsafe end
