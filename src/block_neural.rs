@@ -387,11 +387,11 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
 
                         let general_gradient = output_tape.get_unchecked(j) * self.dropout_inv;
 
-                        let start_time = Instant::now();
                         let j_offset = j * self.num_inputs as usize;
                         for i in 0..self.num_inputs as usize {
                             let feature_value = input_tape.get_unchecked(i);
                             let gradient = general_gradient * feature_value;
+                            let start_time = Instant::now();
                             let update = self.optimizer.calculate_update(
                                 gradient,
                                 &mut self
@@ -399,12 +399,13 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                                     .get_unchecked_mut(i + j_offset)
                                     .optimizer_data,
                             );
+                            println!("Elapsed 1 update: {:?}", start_time.elapsed());
+                            let start_time2 = Instant::now();
                             *output_errors.get_unchecked_mut(i) +=
                                 self.weights.get_unchecked(i + j_offset).weight * general_gradient;
                             self.weights.get_unchecked_mut(i + j_offset).weight -= update;
+                            println!("Elapsed 2 update: {:?}", start_time2.elapsed());
                         }
-                        println!("Elapsed 1 update: {:?}", start_time.elapsed());
-                        let start_time2 = Instant::now();
                         {
                             // Updating bias term:
                             let gradient = general_gradient * 1.0;
@@ -417,9 +418,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             );
                             self.weights.get_unchecked_mut(bias_offset + j).weight -= update;
                         }
-                        println!("Elapsed 2 update: {:?}", start_time2.elapsed());
 
-                        let start_time3 = Instant::now();
                         if self.max_norm != 0.0 && fb.example_number % 10 == 0 {
                             let mut wsquaredsum = 0.000001; // Epsilon
                             for i in 0..self.num_inputs as usize {
@@ -434,9 +433,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                                 }
                             }
                         }
-                        println!("Elapsed 3 update: {:?}", start_time3.elapsed());
                     }
-                    let start_time4 = Instant::now();
                     if self.layer_norm && fb.example_number % 10 == 0 {
                         let mut sum: f32 = 0.0;
                         let mut sumsqr: f32 = 0.0;
@@ -452,11 +449,8 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             self.weights.get_unchecked_mut(i).weight /= var2;
                         }
                     }
-                    println!("Elapsed 4 update: {:?}", start_time4.elapsed());
 
-                    let start_time5 = Instant::now();
                     input_tape.copy_from_slice(output_errors.get_unchecked(0..self.num_inputs));
-                    println!("Elapsed 5 update: {:?}", start_time5.elapsed());
                 }
             }
         } // unsafe end
