@@ -358,8 +358,8 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             }
                         }
                         let elapsed_time2 = start_time2.elapsed();
-                        println!("Elapsed after first update: {:?}", elapsed_time2);
                     }
+                    println!("Elapsed after first update: {:?}", elapsed_time2);
                 }
             }
 
