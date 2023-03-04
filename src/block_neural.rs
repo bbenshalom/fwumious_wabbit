@@ -24,7 +24,7 @@ use regressor::BlockTrait;
 
 use blas::*;
 
-const MAX_NUM_INPUTS: usize = 16000;
+const MAX_NUM_INPUTS: usize = 8000;
 const USE_BLAS: bool = true;
 
 #[derive(PartialEq, Debug)]
