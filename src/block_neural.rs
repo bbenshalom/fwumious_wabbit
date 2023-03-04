@@ -298,18 +298,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                     true => self.dropout_inv,
                     false => 1.0,
                 };
-                if !USE_BLAS {
-                    let mut j_offset: usize = 0;
-                    for j in 0..self.num_neurons {
-                        let mut wsum: f32 = self.weights.get_unchecked(bias_offset + j).weight; // bias term
-                        for i in 0..self.num_inputs {
-                            wsum += input_tape.get_unchecked(i)
-                                * self.weights.get_unchecked(i + j_offset as usize).weight;
-                        }
-                        j_offset += self.num_inputs;
-                        *output_tape.get_unchecked_mut(j) = wsum * self.dropout_inv;
-                    }
-                } else {
+                {
                     // This is actually speed things up considerably.
                     output_tape.copy_from_slice(std::mem::transmute::<&[Weight], &[f32]>(
                         self.weights.get_unchecked(bias_offset..),
@@ -327,32 +316,6 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                         output_tape.get_unchecked_mut(0..), //y: &mut [f32],
                         1,                                  // incy: i32
                     )
-                }
-
-                if update {
-                    // In case we are doing doing learning, and we have a dropout
-
-                    if false && self.dropout != 0.0 {
-                        let mut fill_view: &mut [u8] = slice::from_raw_parts_mut(
-                            self.rng_scratchpad.as_mut_ptr() as *mut u8,
-                            self.num_neurons * mem::size_of::<u32>(),
-                        );
-
-                        //let mut fill_view: [u8; 100] = [0; 100];
-                        // This one is from the "You won't believe it till you measure it 10 times and even then you will suspect yourself not the compiler"
-                        // For some reason call to this function in a block that NEVER executes, slows down the code by 50%
-                        // Specifically it prevents loop unrolling of the weight optimizer 50 lines below ... discovered through disassembly
-                        // I thought It might be related to from_raw_parts above, but it isn't
-
-                        // Attempted fix of going through a #[inline(never)] function did not work
-                        self.rng.fill_bytes(&mut fill_view);
-                        //fill_bytes(&mut self.rng, &mut fill_view);
-                        for j in 0..self.num_neurons {
-                            if *self.rng_scratchpad.get_unchecked(j) < self.dropout_threshold {
-                                *output_tape.get_unchecked_mut(j) = 0.0;
-                            }
-                        }
-                    }
                 }
             }
 
@@ -377,12 +340,6 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                     );
 
                     for j in 0..self.num_neurons as usize {
-                        if self.dropout != 0.0
-                            && *self.rng_scratchpad.get_unchecked(j) < self.dropout_threshold
-                        {
-                            continue;
-                        }
-
                         let general_gradient = output_tape.get_unchecked(j) * self.dropout_inv;
 
                         let j_offset = j * self.num_inputs as usize;
@@ -412,38 +369,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             );
                             self.weights.get_unchecked_mut(bias_offset + j).weight -= update;
                         }
-
-                        if self.max_norm != 0.0 && fb.example_number % 10 == 0 {
-                            let mut wsquaredsum = 0.000001; // Epsilon
-                            for i in 0..self.num_inputs as usize {
-                                let w = self.weights.get_unchecked_mut(i + j_offset).weight;
-                                wsquaredsum += w * w;
-                            }
-                            let norm = wsquaredsum.sqrt();
-                            if norm > self.max_norm {
-                                let scaling = self.max_norm / norm;
-                                for i in 0..self.num_inputs as usize {
-                                    self.weights.get_unchecked_mut(i + j_offset).weight *= scaling;
-                                }
-                            }
-                        }
                     }
-                    if self.layer_norm && fb.example_number % 10 == 0 {
-                        let mut sum: f32 = 0.0;
-                        let mut sumsqr: f32 = 0.0;
-                        let K = 100.0;
-                        for i in 0..bias_offset {
-                            let w = self.weights.get_unchecked(i).weight - K;
-                            sum += w;
-                            sumsqr += w * w;
-                        }
-                        let var1 = (sumsqr - sum * sum / bias_offset as f32) / bias_offset as f32;
-                        let var2 = var1.sqrt();
-                        for i in 0..bias_offset {
-                            self.weights.get_unchecked_mut(i).weight /= var2;
-                        }
-                    }
-
                     input_tape.copy_from_slice(output_errors.get_unchecked(0..self.num_inputs));
                 }
             }
