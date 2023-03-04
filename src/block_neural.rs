@@ -292,12 +292,6 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                     self.output_offset,
                     self.num_neurons,
                 );
-
-                // If we are in pure prediction mode (
-                let dropout_inv = match update {
-                    true => self.dropout_inv,
-                    false => 1.0,
-                };
                 {
                     // This is actually speed things up considerably.
                     output_tape.copy_from_slice(std::mem::transmute::<&[Weight], &[f32]>(
@@ -307,7 +301,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                         b'T',                                                                      //   trans: u8,
                         self.num_inputs as i32,  //   m: i32,
                         self.num_neurons as i32, //   n: i32,
-                        dropout_inv,             //   alpha: f32,
+                        1.0,             //   alpha: f32,
                         std::mem::transmute::<&[Weight], &[f32]>(self.weights.get_unchecked(0..)), //  a: &[f32],
                         self.num_inputs as i32,             // lda: i32,
                         &input_tape.get_unchecked(0..),     // x: &[f32],
@@ -340,7 +334,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                     );
 
                     for j in 0..self.num_neurons as usize {
-                        let general_gradient = output_tape.get_unchecked(j) * self.dropout_inv;
+                        let general_gradient = output_tape.get_unchecked(j);
 
                         let j_offset = j * self.num_inputs as usize;
                         for i in 0..self.num_inputs as usize {
