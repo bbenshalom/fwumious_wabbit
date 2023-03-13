@@ -349,7 +349,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                             );
                             *output_errors.get_unchecked_mut(i) +=
                                 self.weights.get_unchecked(i + j_offset).weight * general_gradient;
-                            if update {
+                            if update == 0 {
                                 continue;
                             }
                             self.weights.get_unchecked_mut(i + j_offset).weight -= update;
@@ -364,7 +364,7 @@ impl<L: OptimizerTrait + 'static> BlockTrait for BlockNeuronLayer<L> {
                                     .get_unchecked_mut(bias_offset + j)
                                     .optimizer_data,
                             );
-                            if update {
+                            if update == 0 {
                                 continue;
                             }
                             self.weights.get_unchecked_mut(bias_offset + j).weight -= update;
