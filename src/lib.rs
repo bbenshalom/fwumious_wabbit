@@ -126,7 +126,7 @@ unsafe fn initialize_workers(num_workers: usize, receiver: Receiver<&str>, proto
                     Err(RecvError) => break // channel was closed
                 }
             }
-        })
+        });
     }
 }
 
