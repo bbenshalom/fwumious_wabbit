@@ -104,13 +104,13 @@ pub unsafe extern "C" fn new_fw_multi_predictor(command: *const c_char, num_work
     let (sender, receiver) = channel::bounded(CHANNEL_CAPACITY);
     let prototype = generate_prototype_predictor(&model_instance, &vw_namespace_map, regressor);
     initialize_workers(num_workers, receiver, prototype);
-    concurrent_predictor = ConcurrentPredictor {
+    let concurrent_predictor = ConcurrentPredictor {
         sender
     };
     Box::into_raw(Box::new(concurrent_predictor)).cast()
 }
 
-unsafe fn initialize_workers(num_workers: usize, receiver: Receiver, prototype: Predictor) {
+unsafe fn initialize_workers(num_workers: usize, receiver: Receiver<&str>, prototype: Predictor) {
     for _ in 0..num_workers {
         let receiver_clone = receiver.clone();
         let lite_predictor = Predictor {
