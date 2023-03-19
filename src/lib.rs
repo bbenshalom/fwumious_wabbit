@@ -32,9 +32,10 @@ use shellwords;
 use std::ffi::CStr;
 use std::io::Cursor;
 use std::os::raw::c_char;
+use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
-use crossbeam::channel::{Receiver, Sender};
+use rayon::{Scope, ThreadPool};
 use crate::feature_buffer::FeatureBufferTranslator;
 use crate::multithread_helpers::BoxedRegressorTrait;
 use crate::parser::VowpalParser;
@@ -51,7 +52,8 @@ pub struct FfiConcurrentPredictor {
 }
 
 pub struct ConcurrentPredictor {
-    sender: Sender<String>
+    thread_pool: Arc<ThreadPool>,
+    predictors: Vec<Predictor>
 }
 
 #[repr(C)]
@@ -83,7 +85,14 @@ impl Predictor {
 
 impl ConcurrentPredictor {
     unsafe fn predict(&mut self, input_buffer: &str) -> f32 {
-        self.sender.send(input_buffer.to_owned()).unwrap()
+        let owned_input = input_buffer.to_owned();
+
+        self.thread_pool.install(|| {
+            self.thread_pool.scope(|scope| {
+                let predictor = self.predictors[self.thread_pool.current_thread_index().unwrap()].clone();
+                scope.spawn(move |_| predictor.predict(&owned_input)).join().unwrap()
+            })
+        })
     }
 }
 
@@ -101,33 +110,14 @@ pub unsafe extern "C" fn new_fw_multi_predictor(command: *const c_char, num_work
     let (model_instance, vw_namespace_map, regressor) =
         persistence::new_regressor_from_filename(weights_filename, true, Some(&cmd_matches))
             .unwrap();
-    let (sender, receiver) = channel::bounded(CHANNEL_CAPACITY);
     let prototype = generate_prototype_predictor(&model_instance, &vw_namespace_map, regressor);
-    initialize_workers(num_workers, receiver, prototype);
+    let predictors = (0..num_workers).map(|_| clone_predictor(&mut prototype)).collect();
+    let thread_pool = Arc::new(ThreadPool::new(rayon::ThreadPoolBuilder::new().num_threads(num_workers)).unwrap());
     let concurrent_predictor = ConcurrentPredictor {
-        sender
+        thread_pool,
+        predictors
     };
     Box::into_raw(Box::new(concurrent_predictor)).cast()
-}
-
-unsafe fn initialize_workers(num_workers: usize, receiver: Receiver<String>, prototype: Predictor) {
-    for _ in 0..num_workers {
-        let receiver_clone = receiver.clone();
-        let lite_predictor = Predictor {
-            feature_buffer_translator: prototype.feature_buffer_translator.clone(),
-            vw_parser: prototype.vw_parser.clone(),
-            regressor: prototype.regressor.clone(),
-            pb: prototype.pb.clone(),
-        };
-        thread::spawn(move || {
-            loop {
-                match receiver_clone {
-                    Ok(input_data) => lite_predictor.predict(&input_data),
-                    Err(RecvError) => break // channel was closed
-                }
-            }
-        });
-    }
 }
 
 #[no_mangle]
@@ -169,13 +159,18 @@ pub unsafe extern "C" fn clone_lite(prototype: *mut FfiPredictor) -> *mut FfiPre
     // that can be used in different threads concurrently. Note that individually, these predictors
     // are not thread safe, but it is safe to use multiple threads, each accessing only one predictor.
     let prototype: &mut Predictor = from_ptr(prototype);
+    let lite_predictor = clone_predictor(prototype);
+    Box::into_raw(Box::new(lite_predictor)).cast()
+}
+
+unsafe fn clone_predictor(prototype: &mut Predictor) -> Predictor {
     let lite_predictor = Predictor {
         feature_buffer_translator: prototype.feature_buffer_translator.clone(),
         vw_parser: prototype.vw_parser.clone(),
         regressor: prototype.regressor.clone(),
         pb: prototype.pb.clone(),
     };
-    Box::into_raw(Box::new(lite_predictor)).cast()
+    lite_predictor
 }
 
 #[no_mangle]

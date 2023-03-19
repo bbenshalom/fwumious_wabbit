@@ -27,7 +27,7 @@ flate2 = { version = "1.0", features = ["cloudflare_zlib"], default-features = f
 shellwords = "1.1.0"
 blas = "0.22"
 intel-mkl-src = {version= "0.7.0", default-features = false, features=["download", "mkl-static-lp64-seq"]}
-crossbeam = "0.8.2"
+rayon = "1.6.1"
 
 [build-dependencies]
 cbindgen = "0.23.0"
