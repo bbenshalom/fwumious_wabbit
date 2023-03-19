@@ -51,7 +51,7 @@ pub struct FfiConcurrentPredictor {
 }
 
 pub struct ConcurrentPredictor {
-    sender: Sender<f32>
+    sender: Sender<String>
 }
 
 #[repr(C)]
@@ -83,7 +83,7 @@ impl Predictor {
 
 impl ConcurrentPredictor {
     unsafe fn predict(&mut self, input_buffer: &str) -> f32 {
-        self.sender.send(input_buffer).unwrap()
+        self.sender.send(input_buffer.to_owned()).unwrap()
     }
 }
 
@@ -110,7 +110,7 @@ pub unsafe extern "C" fn new_fw_multi_predictor(command: *const c_char, num_work
     Box::into_raw(Box::new(concurrent_predictor)).cast()
 }
 
-unsafe fn initialize_workers(num_workers: usize, receiver: Receiver<&str>, prototype: Predictor) {
+unsafe fn initialize_workers(num_workers: usize, receiver: Receiver<String>, prototype: Predictor) {
     for _ in 0..num_workers {
         let receiver_clone = receiver.clone();
         let lite_predictor = Predictor {
@@ -122,7 +122,7 @@ unsafe fn initialize_workers(num_workers: usize, receiver: Receiver<&str>, proto
         thread::spawn(move || {
             loop {
                 match receiver_clone {
-                    Ok(input_data) => lite_predictor.predict(input_data),
+                    Ok(input_data) => lite_predictor.predict(&input_data),
                     Err(RecvError) => break // channel was closed
                 }
             }
