@@ -36,6 +36,14 @@ use shellwords;
 use std::ffi::CStr;
 use std::io::Cursor;
 use std::os::raw::c_char;
+use crate::model_instance::ModelInstance;
+use crate::regressor::Regressor;
+use crate::vwmap::VwNamespaceMap;
+
+#[repr(C)]
+pub struct FfiMultiPredictor {
+    _marker: core::marker::PhantomData<Vec<Predictor>>,
+}
 
 #[repr(C)]
 pub struct FfiPredictor {
@@ -65,6 +73,25 @@ impl Predictor {
 }
 
 #[no_mangle]
+pub extern "C" fn new_fw_multi_predictor(command: *const c_char, num_workers: f32) -> *mut FfiPredictor {
+    // create a "prototype" predictor that loads the weights file. This predictor is expensive, and is intended
+    // to only be created once. If additional predictors are needed (e.g. for concurrent work), please
+    // use this "prototype" with the clone_lite function, which will create cheap copies
+    let str_command = c_char_to_str(command);
+    let words = shellwords::split(str_command).unwrap();
+    let cmd_matches = cmdline::create_expected_args().get_matches_from(words);
+    let weights_filename = match cmd_matches.value_of("initial_regressor") {
+        Some(filename) => filename,
+        None => panic!("Cannot resolve input weights file name"),
+    };
+    let (model_instance, vw_namespace_map, regressor) =
+        persistence::new_regressor_from_filename(weights_filename, true, Some(&cmd_matches))
+            .unwrap();
+    let predictor = generate_predictor(&model_instance, &vw_namespace_map, regressor);
+    Box::into_raw(Box::new(predictor)).cast()
+}
+
+#[no_mangle]
 pub extern "C" fn new_fw_predictor_prototype(command: *const c_char) -> *mut FfiPredictor {
     // create a "prototype" predictor that loads the weights file. This predictor is expensive, and is intended
     // to only be created once. If additional predictors are needed (e.g. for concurrent work), please
@@ -79,6 +106,11 @@ pub extern "C" fn new_fw_predictor_prototype(command: *const c_char) -> *mut Ffi
     let (model_instance, vw_namespace_map, regressor) =
         persistence::new_regressor_from_filename(weights_filename, true, Some(&cmd_matches))
             .unwrap();
+    let predictor = generate_predictor(&model_instance, &vw_namespace_map, regressor);
+    Box::into_raw(Box::new(predictor)).cast()
+}
+
+fn generate_predictor(model_instance: &ModelInstance, vw_namespace_map: &VwNamespaceMap, regressor: Regressor) -> Predictor {
     let feature_buffer_translator = FeatureBufferTranslator::new(&model_instance);
     let vw_parser = VowpalParser::new(&vw_namespace_map);
     let sharable_regressor = BoxedRegressorTrait::new(Box::new(regressor));
@@ -89,7 +121,7 @@ pub extern "C" fn new_fw_predictor_prototype(command: *const c_char) -> *mut Ffi
         regressor: sharable_regressor,
         pb,
     };
-    Box::into_raw(Box::new(predictor)).cast()
+    predictor
 }
 
 #[no_mangle]
