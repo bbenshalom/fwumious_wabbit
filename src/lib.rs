@@ -28,21 +28,30 @@ mod vwmap;
 extern crate blas;
 extern crate intel_mkl_src;
 
-use crate::feature_buffer::FeatureBufferTranslator;
-use crate::multithread_helpers::BoxedRegressorTrait;
-use crate::parser::VowpalParser;
-use crate::port_buffer::PortBuffer;
 use shellwords;
 use std::ffi::CStr;
 use std::io::Cursor;
 use std::os::raw::c_char;
+use std::thread;
+use std::thread::JoinHandle;
+use crossbeam::channel::{Receiver, Sender};
+use crate::feature_buffer::FeatureBufferTranslator;
+use crate::multithread_helpers::BoxedRegressorTrait;
+use crate::parser::VowpalParser;
+use crate::port_buffer::PortBuffer;
 use crate::model_instance::ModelInstance;
 use crate::regressor::Regressor;
 use crate::vwmap::VwNamespaceMap;
 
+static CHANNEL_CAPACITY: usize = 100_000;
+
 #[repr(C)]
-pub struct FfiMultiPredictor {
-    _marker: core::marker::PhantomData<Vec<Predictor>>,
+pub struct FfiConcurrentPredictor {
+    _marker: core::marker::PhantomData<ConcurrentPredictor>,
+}
+
+pub struct ConcurrentPredictor {
+    sender: Sender<f32>
 }
 
 #[repr(C)]
@@ -72,11 +81,16 @@ impl Predictor {
     }
 }
 
+impl ConcurrentPredictor {
+    unsafe fn predict(&mut self, input_buffer: &str) -> f32 {
+        self.sender.send(input_buffer).unwrap()
+    }
+}
+
 #[no_mangle]
-pub extern "C" fn new_fw_multi_predictor(command: *const c_char, num_workers: f32) -> *mut FfiPredictor {
-    // create a "prototype" predictor that loads the weights file. This predictor is expensive, and is intended
-    // to only be created once. If additional predictors are needed (e.g. for concurrent work), please
-    // use this "prototype" with the clone_lite function, which will create cheap copies
+pub unsafe extern "C" fn new_fw_multi_predictor(command: *const c_char, num_workers: usize) -> *mut FfiConcurrentPredictor {
+    // create a predictor that loads the weights file, creates worker threads and can process
+    // multiple input rows concurrently 
     let str_command = c_char_to_str(command);
     let words = shellwords::split(str_command).unwrap();
     let cmd_matches = cmdline::create_expected_args().get_matches_from(words);
@@ -87,8 +101,33 @@ pub extern "C" fn new_fw_multi_predictor(command: *const c_char, num_workers: f3
     let (model_instance, vw_namespace_map, regressor) =
         persistence::new_regressor_from_filename(weights_filename, true, Some(&cmd_matches))
             .unwrap();
-    let predictor = generate_predictor(&model_instance, &vw_namespace_map, regressor);
-    Box::into_raw(Box::new(predictor)).cast()
+    let (sender, receiver) = channel::bounded(CHANNEL_CAPACITY);
+    let prototype = generate_prototype_predictor(&model_instance, &vw_namespace_map, regressor);
+    initialize_workers(num_workers, receiver, prototype);
+    concurrent_predictor = ConcurrentPredictor {
+        sender
+    };
+    Box::into_raw(Box::new(concurrent_predictor)).cast()
+}
+
+unsafe fn initialize_workers(num_workers: usize, receiver: Receiver, prototype: Predictor) {
+    for _ in 0..num_workers {
+        let receiver_clone = receiver.clone();
+        let lite_predictor = Predictor {
+            feature_buffer_translator: prototype.feature_buffer_translator.clone(),
+            vw_parser: prototype.vw_parser.clone(),
+            regressor: prototype.regressor.clone(),
+            pb: prototype.pb.clone(),
+        };
+        thread::spawn(move || {
+            loop {
+                match receiver_clone {
+                    Ok(input_data) => lite_predictor.predict(input_data),
+                    Err(RecvError) => break // channel was closed
+                }
+            }
+        })
+    }
 }
 
 #[no_mangle]
@@ -106,11 +145,11 @@ pub extern "C" fn new_fw_predictor_prototype(command: *const c_char) -> *mut Ffi
     let (model_instance, vw_namespace_map, regressor) =
         persistence::new_regressor_from_filename(weights_filename, true, Some(&cmd_matches))
             .unwrap();
-    let predictor = generate_predictor(&model_instance, &vw_namespace_map, regressor);
+    let predictor = generate_prototype_predictor(&model_instance, &vw_namespace_map, regressor);
     Box::into_raw(Box::new(predictor)).cast()
 }
 
-fn generate_predictor(model_instance: &ModelInstance, vw_namespace_map: &VwNamespaceMap, regressor: Regressor) -> Predictor {
+fn generate_prototype_predictor(model_instance: &ModelInstance, vw_namespace_map: &VwNamespaceMap, regressor: Regressor) -> Predictor {
     let feature_buffer_translator = FeatureBufferTranslator::new(&model_instance);
     let vw_parser = VowpalParser::new(&vw_namespace_map);
     let sharable_regressor = BoxedRegressorTrait::new(Box::new(regressor));
@@ -147,11 +186,23 @@ pub unsafe extern "C" fn fw_predict(ptr: *mut FfiPredictor, input_buffer: *const
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn fw_concurrent_predict(ptr: *mut FfiConcurrentPredictor, input_buffer: *const c_char) -> f32 {
+    let str_buffer = c_char_to_str(input_buffer);
+    let predictor: &mut ConcurrentPredictor = from_ptr(ptr);
+    predictor.predict(str_buffer)
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn free_predictor(ptr: *mut FfiPredictor) {
     drop::<Box<Predictor>>(Box::from_raw(from_ptr(ptr)));
 }
 
-unsafe fn from_ptr<'a>(ptr: *mut FfiPredictor) -> &'a mut Predictor {
+#[no_mangle]
+pub unsafe extern "C" fn free_concurrent_predictor(ptr: *mut FfiConcurrentPredictor) {
+    drop::<Box<ConcurrentPredictor>>(Box::from_raw(from_ptr(ptr)));
+}
+
+unsafe fn from_ptr<'a, FROM, TO>(ptr: *mut FROM) -> &'a mut TO {
     if ptr.is_null() {
         eprintln!("Fatal error, got NULL `Context` pointer");
         std::process::abort();
