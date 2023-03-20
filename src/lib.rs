@@ -55,7 +55,7 @@ pub struct FfiConcurrentPredictor {
 
 pub struct ConcurrentPredictor {
     thread_pool: ThreadPool,
-    predictors: Vec<Predictor>
+    predictors: Arc<Vec<Predictor>>
 }
 
 #[repr(C)]
@@ -89,9 +89,10 @@ impl Predictor {
 }
 
 impl ConcurrentPredictor {
-    unsafe fn predict(&self, input_buffer: &str) -> f32 {
+    unsafe fn predict(&mut self, input_buffer: &str) -> f32 {
+        let predictors = Arc::clone(&self.predictors);
         self.thread_pool.install(|| {
-            let predictor = self.predictors[rayon::current_thread_index().unwrap()].borrow_mut();
+            let predictor = predictors[rayon::current_thread_index().unwrap()].borrow_mut();
             predictor.predict(input_buffer)
         })
     }
@@ -116,7 +117,7 @@ pub unsafe extern "C" fn new_fw_multi_predictor(command: *const c_char, num_work
     let thread_pool = ThreadPoolBuilder::new().num_threads(num_workers).build().unwrap();
     let concurrent_predictor = ConcurrentPredictor {
         thread_pool,
-        predictors
+        predictors: Arc::new(predictors)
     };
     Box::into_raw(Box::new(concurrent_predictor)).cast()
 }
