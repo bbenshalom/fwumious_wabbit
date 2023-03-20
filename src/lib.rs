@@ -29,7 +29,7 @@ extern crate blas;
 extern crate intel_mkl_src;
 
 use std::borrow::BorrowMut;
-use std::cell::UnsafeCell;
+use std::cell::{RefCell, UnsafeCell};
 use shellwords;
 use std::ffi::CStr;
 use std::io::Cursor;
@@ -55,7 +55,7 @@ pub struct FfiConcurrentPredictor {
 
 pub struct ConcurrentPredictor {
     thread_pool: ThreadPool,
-    predictors: Arc<Vec<Predictor>>
+    predictors: Arc<Vec<RefCell<Predictor>>>
 }
 
 #[repr(C)]
@@ -113,7 +113,7 @@ pub unsafe extern "C" fn new_fw_multi_predictor(command: *const c_char, num_work
         persistence::new_regressor_from_filename(weights_filename, true, Some(&cmd_matches))
             .unwrap();
     let mut prototype = generate_prototype_predictor(&model_instance, &vw_namespace_map, regressor);
-    let predictors = (0..num_workers).map(|_| clone_predictor(&mut prototype)).collect();
+    let predictors = (0..num_workers).map(|_| RefCell::new(clone_predictor(&mut prototype))).collect();
     let thread_pool = ThreadPoolBuilder::new().num_threads(num_workers).build().unwrap();
     let concurrent_predictor = ConcurrentPredictor {
         thread_pool,
