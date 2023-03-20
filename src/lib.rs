@@ -53,7 +53,7 @@ pub struct FfiConcurrentPredictor {
 
 pub struct ConcurrentPredictor {
     thread_pool: Arc<ThreadPool>,
-    predictors: Vec<Predictor>
+    predictors: Arc<Vec<Predictor>>
 }
 
 #[repr(C)]
@@ -109,12 +109,12 @@ pub unsafe extern "C" fn new_fw_multi_predictor(command: *const c_char, num_work
     let (model_instance, vw_namespace_map, regressor) =
         persistence::new_regressor_from_filename(weights_filename, true, Some(&cmd_matches))
             .unwrap();
-    let prototype = generate_prototype_predictor(&model_instance, &vw_namespace_map, regressor);
+    let mut prototype = generate_prototype_predictor(&model_instance, &vw_namespace_map, regressor);
     let predictors = (0..num_workers).map(|_| clone_predictor(&mut prototype)).collect();
     let thread_pool = ThreadPoolBuilder::new().num_threads(num_workers).build().unwrap();
     let concurrent_predictor = ConcurrentPredictor {
         thread_pool: Arc::new(thread_pool),
-        predictors
+        predictors: Arc::new(predictors)
     };
     Box::into_raw(Box::new(concurrent_predictor)).cast()
 }
