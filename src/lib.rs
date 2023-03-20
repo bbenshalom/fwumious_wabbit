@@ -90,7 +90,8 @@ impl Predictor {
 
 impl ConcurrentPredictor {
     unsafe fn predict(&mut self, input_buffer: &str) -> f32 {
-        self.thread_pool.install(|| {
+        let &threadpool = self.thread_pool;
+        threadpool.install(|| {
             let &mut predictor = &mut self.predictors[rayon::current_thread_index().unwrap()];
             predictor.predict(input_buffer)
         })
