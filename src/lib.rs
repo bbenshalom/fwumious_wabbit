@@ -85,12 +85,10 @@ impl Predictor {
 
 impl ConcurrentPredictor {
     unsafe fn predict(&mut self, input_buffer: &str) -> f32 {
-        let join_handle = self.thread_pool.spawn(move || {
-            let current_thread_index = rayon::current_thread_index().unwrap();
-            let predictor: Predictor = self.predictors[current_thread_index];
+        thread_pool.install(|| {
+            let predictor = &self.predictors[rayon::current_thread_index().unwrap()];
             predictor.predict(input_buffer)
-        });
-        join_handle.join().unwrap()
+        })
     }
 }
 
