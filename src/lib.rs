@@ -92,7 +92,7 @@ impl ConcurrentPredictor {
     unsafe fn predict(&mut self, input_buffer: &str) -> f32 {
         let predictors = Arc::clone(&self.predictors);
         self.thread_pool.install(|| {
-            let predictor = predictors[rayon::current_thread_index().unwrap()].borrow_mut();
+            let predictor = predictors[rayon::current_thread_index().unwrap()].get_mut();
             predictor.predict(input_buffer)
         })
     }
