@@ -28,6 +28,7 @@ mod vwmap;
 extern crate blas;
 extern crate intel_mkl_src;
 
+use std::cell::RefCell;
 use shellwords;
 use std::ffi::CStr;
 use std::io::Cursor;
@@ -53,7 +54,7 @@ pub struct FfiConcurrentPredictor {
 
 pub struct ConcurrentPredictor {
     thread_pool: Arc<ThreadPool>,
-    predictors: Arc<Vec<Predictor>>
+    predictors: RefCell<Vec<Predictor>>
 }
 
 #[repr(C)]
@@ -89,7 +90,7 @@ impl Predictor {
 impl ConcurrentPredictor {
     unsafe fn predict(&mut self, input_buffer: &str) -> f32 {
         self.thread_pool.install(|| {
-            let predictor = &mut self.predictors[rayon::current_thread_index().unwrap()];
+            let predictor: &Predictor = &mut self.predictors[rayon::current_thread_index().unwrap()];
             predictor.predict(input_buffer)
         })
     }
@@ -114,7 +115,7 @@ pub unsafe extern "C" fn new_fw_multi_predictor(command: *const c_char, num_work
     let thread_pool = ThreadPoolBuilder::new().num_threads(num_workers).build().unwrap();
     let concurrent_predictor = ConcurrentPredictor {
         thread_pool: Arc::new(thread_pool),
-        predictors: Arc::new(predictors)
+        predictors: RefCell::new(predictors)
     };
     Box::into_raw(Box::new(concurrent_predictor)).cast()
 }
