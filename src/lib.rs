@@ -34,6 +34,7 @@ use std::io::Cursor;
 use std::os::raw::c_char;
 use std::sync::Arc;
 use std::thread;
+use std::marker::{Send, Sync};
 use rayon::{Scope, ThreadPool, ThreadPoolBuilder};
 use crate::feature_buffer::FeatureBufferTranslator;
 use crate::multithread_helpers::BoxedRegressorTrait;
@@ -66,6 +67,9 @@ pub struct Predictor {
     regressor: BoxedRegressorTrait,
     pb: PortBuffer,
 }
+
+unsafe impl Send for Predictor {}
+unsafe impl Sync for Predictor {}
 
 impl Predictor {
     unsafe fn predict(&mut self, input_buffer: &str) -> f32 {
