@@ -34,7 +34,7 @@ use std::io::Cursor;
 use std::os::raw::c_char;
 use std::sync::Arc;
 use std::thread;
-use rayon::{Scope, ThreadPool, Configuration};
+use rayon::{Scope, ThreadPool, ThreadPoolBuilder};
 use crate::feature_buffer::FeatureBufferTranslator;
 use crate::multithread_helpers::BoxedRegressorTrait;
 use crate::parser::VowpalParser;
@@ -51,7 +51,7 @@ pub struct FfiConcurrentPredictor {
 }
 
 pub struct ConcurrentPredictor {
-    thread_pool: ThreadPool,
+    thread_pool: Arc<ThreadPool>,
     predictors: Vec<Predictor>
 }
 
@@ -84,12 +84,10 @@ impl Predictor {
 
 impl ConcurrentPredictor {
     unsafe fn predict(&mut self, input_buffer: &str) -> f32 {
-        unsafe {
-            self.thread_pool.install(|| {
-                    let predictor = &self.predictors[rayon::current_thread_index().unwrap()];
-                    predictor.predict(input_buffer)
-            }) 
-        }
+        self.thread_pool.install(|| {
+            let predictor = &self.predictors[rayon::current_thread_index().unwrap()];
+            predictor.predict(input_buffer)
+        })
     }
 }
 
@@ -109,9 +107,9 @@ pub unsafe extern "C" fn new_fw_multi_predictor(command: *const c_char, num_work
             .unwrap();
     let prototype = generate_prototype_predictor(&model_instance, &vw_namespace_map, regressor);
     let predictors = (0..num_workers).map(|_| clone_predictor(&mut prototype)).collect();
-    let thread_pool = Configuration::new().num_threads(num_workers).build().unwrap();
+    let thread_pool = ThreadPoolBuilder::new().num_threads(num_workers).build().unwrap();
     let concurrent_predictor = ConcurrentPredictor {
-        thread_pool,
+        thread_pool: Arc::new(thread_pool),
         predictors
     };
     Box::into_raw(Box::new(concurrent_predictor)).cast()
